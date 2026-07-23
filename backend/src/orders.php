@@ -40,6 +40,64 @@ $sql .= " ORDER BY datetime(created_at) ASC";
 $offset = ($page - 1) * $per;
 $sql .= " LIMIT {$per} OFFSET {$offset}";
 
+
+// adding explain :
+$sql = 'EXPLAIN QUERY PLAN ' . $sql;
+$plan = $pdo->prepare($sql);
+$plan->execute($params);
+print_r($plan->fetchAll(PDO::FETCH_ASSOC));
+return;
+
+/*
+
+BEFORE:
+
+
+Array
+(
+    [0] => Array
+        (
+            [id] => 7
+            [parent] => 0
+            [notused] => 0
+            [detail] => SCAN orders
+        )
+
+    [1] => Array
+        (
+            [id] => 26
+            [parent] => 0
+            [notused] => 0
+            [detail] => USE TEMP B-TREE FOR ORDER BY
+        )
+
+)
+
+
+AFTER ADDING user_id, created_at index:
+
+Array
+(
+    [0] => Array
+        (
+            [id] => 8
+            [parent] => 0
+            [notused] => 0
+            [detail] => SEARCH orders USING INDEX idx_orders_user_created (user_id=?)
+        )
+
+    [1] => Array
+        (
+            [id] => 30
+            [parent] => 0
+            [notused] => 0
+            [detail] => USE TEMP B-TREE FOR ORDER BY
+        )
+
+)
+*/
+
+
 $stmt = $pdo->prepare($sql);
 $stmt->execute($params);
 $rows = $stmt->fetchAll(PDO::FETCH_ASSOC);
