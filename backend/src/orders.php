@@ -24,105 +24,54 @@ $sql = "SELECT id, user_id, total, created_at FROM orders WHERE user_id = :uid";
 $params = [':uid' => $userId];
 
 if ($start) {
-    $sql .= " AND created_at >= :start"; // no index -> slow
+    $sql .= " AND created_at >= :start";
     $params[':start'] = $start;
 }
 if ($end) {
-    $sql .= " AND created_at <= :end";   // no index -> slow
+    $sql .= " AND created_at <= :end";
     $params[':end'] = $end;
 }
 
-// BAD: sorting on computed expression (just to be nasty)
-// We'll simply sort by created_at ASC, but candidate can consider different sort orders.
-$sql .= " ORDER BY datetime(created_at) ASC";
-
-// BAD pagination: OFFSET pagination without a stable index
 $offset = ($page - 1) * $per;
-$sql .= " LIMIT {$per} OFFSET {$offset}";
-
-
-// adding explain :
-$sql = 'EXPLAIN QUERY PLAN ' . $sql;
-$plan = $pdo->prepare($sql);
-$plan->execute($params);
-print_r($plan->fetchAll(PDO::FETCH_ASSOC));
-return;
-
-/*
-
-BEFORE:
-
-
-Array
-(
-    [0] => Array
-        (
-            [id] => 7
-            [parent] => 0
-            [notused] => 0
-            [detail] => SCAN orders
-        )
-
-    [1] => Array
-        (
-            [id] => 26
-            [parent] => 0
-            [notused] => 0
-            [detail] => USE TEMP B-TREE FOR ORDER BY
-        )
-
-)
-
-
-AFTER ADDING user_id, created_at index:
-
-Array
-(
-    [0] => Array
-        (
-            [id] => 8
-            [parent] => 0
-            [notused] => 0
-            [detail] => SEARCH orders USING INDEX idx_orders_user_created (user_id=?)
-        )
-
-    [1] => Array
-        (
-            [id] => 30
-            [parent] => 0
-            [notused] => 0
-            [detail] => USE TEMP B-TREE FOR ORDER BY
-        )
-
-)
-*/
+// stabling the pagination by adding the id and making it safe against sql injection by using parameterized bindings 
+$sql .= " ORDER BY created_at ASC, id ASC LIMIT :limit OFFSET :offset"; 
+$params[':limit'] = $per;
+$params[':offset'] = $offset;
 
 
 $stmt = $pdo->prepare($sql);
 $stmt->execute($params);
 $rows = $stmt->fetchAll(PDO::FETCH_ASSOC);
 
-// N+1 style enrichment (simulate joins badly)
-foreach ($rows as &$r) {
-    // BAD: separate queries per row (simulate N+1)
-    $s2 = $pdo->prepare("SELECT method, status FROM payments WHERE order_id = :oid");
-    $s2->execute([':oid' => $r['id']]);
-    $pay = $s2->fetch(PDO::FETCH_ASSOC);
-    $r['payment'] = $pay ?: ['method' => null, 'status' => null];
+// eager loading instead of N+1 query
+if (!empty($rows)) {
+    $orderIds = array_column($rows, 'id');
 
-    // Another N+1 for item count
-    $s3 = $pdo->prepare("SELECT COUNT(*) as c FROM order_items WHERE order_id = :oid");
-    $s3->execute([':oid' => $r['id']]);
-    $cnt = $s3->fetch(PDO::FETCH_ASSOC);
-    $r['items_count'] = $cnt ? (int)$cnt['c'] : 0;
+    $placeholders = implode(',', array_fill(0, count($orderIds), '?'));
+
+    $payStmt = $pdo->prepare("SELECT order_id, method, status FROM payments WHERE order_id IN ($placeholders)");
+    $payStmt->execute($orderIds);
+    $payments = $payStmt->fetchAll(PDO::FETCH_GROUP | PDO::FETCH_UNIQUE | PDO::FETCH_ASSOC);
+
+    $countStmt = $pdo->prepare("SELECT order_id, COUNT(*) as c FROM order_items WHERE order_id IN ($placeholders) GROUP BY order_id");
+    $countStmt->execute($orderIds);
+    $counts = $countStmt->fetchAll(PDO::FETCH_KEY_PAIR);
+
+    foreach ($rows as &$r) {
+        $oid = $r['id'];
+
+        $r['payment'] = $payments[$oid] ?? ['method' => null, 'status' => null];
+        unset($r['payment']['order_id']); // Clean up relational identifier
+
+        $r['items_count'] = isset($counts[$oid]) ? (int)$counts[$oid] : 0;
+    }
+    unset($r);
 }
-unset($r);
-
 // Fake delay to exaggerate slowness
 usleep(50000); // 50ms
 
 $out = json_encode([
-    'token_hint' => '{{TOKEN}}',
+    'token_hint' => 'CAND-NT1',
     'page' => $page,
     'per_page' => $per,
     'count' => count($rows),
