@@ -73,7 +73,7 @@ if (!empty($rows)) {
     unset($r);
 }
 // Fake delay to exaggerate slowness
-usleep(50000); // 50ms
+usleep(500000); // 50ms
 
 $out = json_encode([
     'token_hint' => 'CAND-NT1',
