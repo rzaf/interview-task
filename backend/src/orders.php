@@ -72,6 +72,12 @@ if (!empty($rows)) {
     }
     unset($r);
 }
+
+$countStmt = $pdo->prepare("SELECT COUNT(*) FROM orders WHERE user_id = :uid" . ($start ? " AND created_at >= :start" : "") . ($end ? " AND created_at <= :end" : ""));
+$countStmt->execute(array_intersect_key($params, [':uid' => true, ':start' => true, ':end' => true]));
+$totalCount = (int) $countStmt->fetchColumn();
+
+
 // Fake delay to exaggerate slowness
 usleep(500000); // 50ms
 
@@ -79,7 +85,7 @@ $out = json_encode([
     'token_hint' => 'CAND-NT1',
     'page' => $page,
     'per_page' => $per,
-    'count' => count($rows),
+    'count' => $totalCount,
     'data' => $rows
 ], JSON_UNESCAPED_UNICODE);
 
