@@ -7,25 +7,53 @@ const loading = ref(false)
 const data = ref([])
 const count = ref(0)
 const error = ref('')
+let currentController = null
 
 const isEmpty = computed(() => !loading.value && !error.value && count.value === 0)
 const hasOrders = computed(() => !loading.value && !error.value && count.value > 0)
 
 async function fetchOrders() {
+  if (currentController) {
+    currentController.abort()
+  }
+
+  const controller = new AbortController()
+  currentController = controller
+
   loading.value = true
   error.value = ''
+
   try {
     const q = new URLSearchParams({ user_id: String(userId.value), page: String(page.value), per_page: String(per.value) })
-    const res = await fetch(`http://127.0.0.1:8080/api/orders?${q.toString()}`)
-    const json = await res.json()
+    const res = await fetch(`http://127.0.0.1:8080/api/orders?${q.toString()}`, {
+      signal: controller.signal,
+    })
+
+    if (!res.ok) {
+      throw new Error(`Request failed with ${res.status}`)
+    }
+
+    const [json] = await Promise.all([res.json()])
+
+    if (controller.signal.aborted) {
+      return
+    }
+
     data.value = json.data
     count.value = json.count
   } catch (e) {
+    if (e.name === 'AbortError') {
+      return
+    }
+
     error.value = String(e)
     data.value = []
     count.value = 0
   } finally {
-    loading.value = false
+    if (currentController === controller) {
+      loading.value = false
+      currentController = null
+    }
   }
 }
 
