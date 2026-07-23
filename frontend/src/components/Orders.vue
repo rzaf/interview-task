@@ -1,5 +1,5 @@
 <script setup>
-import { ref, watch, onMounted, computed } from 'vue'
+import { ref, watch, onMounted, onBeforeUnmount, computed } from 'vue'
 const userId = ref(1)
 const page = ref(1)
 const per = ref(20)
@@ -8,6 +8,7 @@ const data = ref([])
 const count = ref(0)
 const error = ref('')
 let currentController = null
+let debounceTimer = null
 
 const isEmpty = computed(() => !loading.value && !error.value && count.value === 0)
 const hasOrders = computed(() => !loading.value && !error.value && count.value > 0)
@@ -58,7 +59,28 @@ async function fetchOrders() {
 }
 
 onMounted(fetchOrders)
-watch([userId, page, per], fetchOrders)
+watch([userId, page, per], () => {
+  if (debounceTimer) {
+    clearTimeout(debounceTimer)
+  }
+
+  if (currentController) {
+    currentController.abort()
+  }
+
+  debounceTimer = setTimeout(() => {
+    fetchOrders()
+  }, 600) // 600 ms
+})
+
+onBeforeUnmount(() => {
+  if (debounceTimer) {
+    clearTimeout(debounceTimer)
+  }
+  if (currentController) {
+    currentController.abort()
+  }
+})
 </script>
 
 <template>
