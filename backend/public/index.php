@@ -11,7 +11,7 @@ $method = $_SERVER['REQUEST_METHOD'] ?? 'GET';
 header('Content-Type: application/json; charset=utf-8');
 
 if ($path === '/health') {
-    echo json_encode(['ok' => true, 'ts' => time(), 'token_hint' => '{{TOKEN}}']);
+    echo json_encode(['ok' => true, 'ts' => time(), 'token_hint' => 'CAND-NT1']);
     exit;
 }
 

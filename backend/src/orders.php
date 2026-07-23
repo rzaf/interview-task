@@ -3,8 +3,6 @@ declare(strict_types=1);
 
 $pdo = $GLOBALS['pdo'];
 
-// --- Deliberate issues below (for the candidate to find & fix) ---
-// 1) No proper WHERE index on created_at (SQLite allows indexes but we didn't add).
 $userId = isset($_GET['user_id']) ? (int)$_GET['user_id'] : 1;
 $page   = isset($_GET['page']) ? max(1, (int)$_GET['page']) : 1;
 $per    = isset($_GET['per_page']) ? max(1, min(100, (int)$_GET['per_page'])) : 20;
@@ -12,8 +10,15 @@ $per    = isset($_GET['per_page']) ? max(1, min(100, (int)$_GET['per_page'])) : 
 $start  = $_GET['start'] ?? null;
 $end    = $_GET['end'] ?? null;
 
-// Very naive cache key (candidates should redesign invalidation)
-$cacheKey = "orders:u{$userId}:p{$page}:per{$per}:s{$start}:e{$end}";
+// --- SANE CACHE STRATEGY: Generational User-Scoped Invalidation ---
+// Fetch current cache version for this user. If missing, defaults to 1.
+$versionKey = "user_version:u{$userId}";
+$userVersion = cache_get($versionKey) ?? "1";
+
+// Embed the version directly into the key. 
+// When the version changes, all prior paginated variants vanish instantly.
+$cacheKey = "orders:u{$userId}:v{$userVersion}:p{$page}:per{$per}:s{$start}:e{$end}";
+
 if ($cached = cache_get($cacheKey)) {
     echo $cached;
     return;

@@ -17,17 +17,37 @@ if (!file_exists($dbFile)) {
     $pdo->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
 }
 
-// Very naive cache stub (to be replaced/improved by candidate)
+/// change to sha256 instead of md5 for better collision resistance & add locking
 function cache_get(string $key): ?string {
-    $f = sys_get_temp_dir() . '/cache_' . md5($key) . '.txt';
-    if (file_exists($f) && (time() - filemtime($f) < 10)) {
-        return file_get_contents($f);
+    $f = sys_get_temp_dir() . '/cache_' . hash('sha256', $key) . '.txt';
+    // Check existence and expiration first
+    if (!file_exists($f) || (time() - filemtime($f) >= 10)) {
+        return null;
+    }
+    // Open file safely with a shared lock (allows multiple reads, blocks writes)
+    $stream = fopen($f, 'r');
+    if ($stream) {
+        flock($stream, LOCK_SH);
+        $content = stream_get_contents($stream);
+        flock($stream, LOCK_UN);
+        fclose($stream);
+        return $content !== false ? $content : null;
     }
     return null;
 }
+
 function cache_set(string $key, string $value): void {
-    $f = sys_get_temp_dir() . '/cache_' . md5($key) . '.txt';
-    file_put_contents($f, $value);
+    $f = sys_get_temp_dir() . '/cache_' . hash('sha256', $key) . '.txt';
+    // Open file safely with an exclusive lock (blocks all other reads and writes)
+    $stream = fopen($f, 'c'); // 'c' opens file for writing without truncating yet
+    if ($stream) {
+        flock($stream, LOCK_EX);
+        ftruncate($stream, 0); // Safely clear file size only after locking
+        fwrite($stream, $value);
+        fflush($stream); // Force flush to disk before releasing lock
+        flock($stream, LOCK_UN);
+        fclose($stream);
+    }
 }
 
 $GLOBALS['pdo'] = $pdo;
