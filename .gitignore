@@ -3,3 +3,4 @@
 backend/db/orders.sqlite
 
 backend-before/
+frontend/node_modules
